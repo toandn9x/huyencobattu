@@ -8,6 +8,7 @@ export default defineConfig({
     port: 3005,
     host: true, // Listen on all addresses (0.0.0.0)
     strictPort: true,
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://localhost:8888',
