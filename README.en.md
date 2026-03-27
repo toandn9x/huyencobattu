@@ -476,18 +476,17 @@ The BaZi calculation engine is built entirely in JavaScript:
 
 If you love this project and want to support or collaborate, please contact:
 
-- **Author:** [Your Name/Team name]
-- **Email:** admin@huyencobattu.vn
-- **Zalo/Telegram:** [Phone number or Link]
-- **Website:** [huyencobattu.com]
-
+- **Author:** Toandn
+- **Email:** aToandn9x@gmail.com
+- **Zalo/Telegram:** 
+- **Website:** 
 ### 💎 Support the Project (Donation)
 
 Your support is a great motivation for us to maintain servers and develop new AI features.
 
-- **Bank:** [Bank Name]
-- **Account Number:** [Your Account Number]
-- **Account Holder:** [Your Name]
+- **Bank:** BIDV
+- **Account Number:** 1222172532
+- **Account Holder:** DINH NGOC TOAN
 - **Memo:** [Huyen Co - Your Name]
 
 *Thank you for your companionship!*

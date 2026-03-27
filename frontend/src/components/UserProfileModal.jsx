@@ -150,13 +150,13 @@ const UserProfileModal = ({ isOpen, onClose }) => {
                         Để nạp nhanh Linh Thạch hoặc ủng hộ duy trì server, quý mệnh chủ có thể sử dụng thông tin sau:
                     </p>
                     <div className="donation-card glass-card">
-                        <div className="donation-row"><strong>Ngân hàng:</strong> <span>[Tên ngân hàng]</span></div>
-                        <div className="donation-row"><strong>Số tài khoản:</strong> <span>[Số tài khoản]</span></div>
-                        <div className="donation-row"><strong>Chủ tài khoản:</strong> <span>[Tên chủ tài khoản]</span></div>
+                        <div className="donation-row"><strong>Ngân hàng:</strong> <span>BIDV</span></div>
+                        <div className="donation-row"><strong>Số tài khoản:</strong> <span>1222172532</span></div>
+                        <div className="donation-row"><strong>Chủ tài khoản:</strong> <span>DINH NGOC TOAN</span></div>
                         <div className="donation-row"><strong>Nội dung:</strong> <span>Huyền Cơ - [Email của bạn]</span></div>
                     </div>
                     <p className="contact-small">
-                        Liên hệ tác giả: <strong>admin@huyencobattu.vn</strong>
+                        Liên hệ tác giả: <strong>toandn9x@gmail.com</strong>
                     </p>
                 </div>
 

@@ -12666,3 +12666,58 @@ select.dp-year-select {
     -webkit-overflow-scrolling: touch;
   }
 }
+
+/* ========== Donation & Contact Info ========== */
+.donation-info {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px dashed rgba(226, 192, 68, 0.3);
+}
+
+.donation-description {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+  line-height: 1.4;
+}
+
+.donation-card {
+  padding: 1rem;
+  background: rgba(226, 192, 68, 0.05) !important;
+  border: 1px solid rgba(226, 192, 68, 0.2) !important;
+  border-radius: 12px;
+  margin-bottom: 0.5rem;
+}
+
+.donation-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.donation-row:last-child {
+  margin-bottom: 0;
+}
+
+.donation-row strong {
+  color: var(--accent-gold);
+  font-weight: 600;
+}
+
+.donation-row span {
+  color: var(--text-primary);
+  font-family: monospace;
+  letter-spacing: 0.5px;
+}
+
+.contact-small {
+  margin-top: 1rem;
+  font-size: 0.7rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.contact-small strong {
+  color: var(--accent-gold);
+}

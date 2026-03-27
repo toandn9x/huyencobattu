@@ -483,18 +483,18 @@ MIT License — Xem file [LICENSE](LICENSE) để biết thêm chi tiết.
 
 Nếu bạn yêu thích dự án này và muốn hỗ trợ hoặc hợp tác, xin vui lòng liên hệ:
 
-- **Tác giả:** [Tên của bạn/Team name]
-- **Email:** admin@huyencobattu.vn
-- **Zalo/Telegram:** [Số điện thoại hoặc Link]
-- **Website:** [huyencobattu.com]
+- **Tác giả:** [Toandn]
+- **Email:** toandn9x@gmail.com
+- **Zalo/Telegram:**
+- **Website:**
 
 ### 💎 Ủng hộ dự án (Donation)
 
 Mọi sự ủng hộ của bạn đều là động lực to lớn để chúng mình duy trì server và phát triển thêm các tính năng AI mới.
 
-- **Ngân hàng:** [Tên ngân hàng]
-- **Số tài khoản:** [Số tài khoản của bạn]
-- **Chủ tài khoản:** [Tên chủ tài khoản]
+- **Ngân hàng:** BIDV
+- **Số tài khoản:** 1222172532
+- **Chủ tài khoản:** DINH NGOC TOAN
 - **Nội dung:** [Huyền Cơ - Tên của bạn]
 
 *Xin chân thành cảm ơn sự đồng hành của quý mệnh chủ!*
