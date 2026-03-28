@@ -7,7 +7,7 @@ import QueTimeline from './components/QueTimeline';
 import QueShareCard from './components/QueShareCard';
 import './QuePage.css';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8888';
+const API_BASE = import.meta.env.VITE_API_URL || ''; // Use relative path in development to avoid PNA issues on ngrok
 
 
 
