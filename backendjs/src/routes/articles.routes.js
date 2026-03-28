@@ -213,15 +213,11 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
         const { id } = req.params;
         const article = await db.getArticleById(id);
 
-        if (!article) {
-            return res.status(404).json({ success: false, error: 'Article not found' });
-        }
-
         await db.updateArticle(id, req.body);
         res.json({ success: true, message: 'Article updated successfully' });
     } catch (err) {
-        console.error('[Articles Admin] Update error:', err);
-        res.status(500).json({ success: false, error: 'Failed to update article' });
+        console.error(`[Articles Admin] Update error for ID ${req.params.id}:`, err);
+        res.status(500).json({ success: false, error: err.message || 'Failed to update article' });
     }
 });
 

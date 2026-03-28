@@ -873,7 +873,7 @@ const ArticlesAdminPage = () => {
             ? `${API_CONFIG.BASE_URL}/articles/${editingArticle.id}`
             : `${API_CONFIG.BASE_URL}/articles`;
         try {
-            await fetch(url, {
+            const response = await fetch(url, {
                 method: editingArticle ? 'PUT' : 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -881,11 +881,19 @@ const ArticlesAdminPage = () => {
                 },
                 body: JSON.stringify(form)
             });
-            setShowModal(false);
-            setEditingArticle(null);
-            setForm({ title: '', excerpt: '', content: '', category_id: '', is_published: true, is_featured: false });
-            fetchArticles();
-        } catch (err) { console.error(err); }
+            const data = await response.json();
+            if (response.ok && data.success) {
+                setShowModal(false);
+                setEditingArticle(null);
+                setForm({ title: '', excerpt: '', content: '', category_id: '', is_published: true, is_featured: false });
+                fetchArticles();
+            } else {
+                alert(`Lỗi: ${data.error || data.message || 'Không thể lưu bài viết'}`);
+            }
+        } catch (err) { 
+            console.error(err); 
+            alert('Lỗi kết nối server');
+        }
     };
 
     const handleDelete = async (id) => {

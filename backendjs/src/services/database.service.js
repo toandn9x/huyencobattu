@@ -1083,7 +1083,7 @@ class DatabaseService {
             INSERT INTO article_categories (name, slug, description, order_index)
             VALUES (?, ?, ?, ?)
         `, [data.name, data.slug, data.description || '', data.order_index || 0]);
-        return result.lastID;
+        return result.id;
     }
 
     async getArticles(options = {}) {
@@ -1164,7 +1164,7 @@ class DatabaseService {
             data.is_published !== undefined ? (data.is_published ? 1 : 0) : 1,
             data.is_featured ? 1 : 0
         ]);
-        return result.lastID;
+        return result.id;
     }
 
     async updateArticle(id, data) {
@@ -1176,15 +1176,32 @@ class DatabaseService {
         if (data.excerpt !== undefined) { fields.push('excerpt = ?'); params.push(data.excerpt); }
         if (data.content !== undefined) { fields.push('content = ?'); params.push(data.content); }
         if (data.thumbnail !== undefined) { fields.push('thumbnail = ?'); params.push(data.thumbnail); }
-        if (data.category_id !== undefined) { fields.push('category_id = ?'); params.push(data.category_id); }
+        
+        // Handle category_id: convert empty string to null for DB consistency
+        if (data.category_id !== undefined) { 
+            fields.push('category_id = ?'); 
+            params.push(data.category_id === '' ? null : data.category_id); 
+        }
+        
         if (data.author !== undefined) { fields.push('author = ?'); params.push(data.author); }
         if (data.is_published !== undefined) { fields.push('is_published = ?'); params.push(data.is_published ? 1 : 0); }
         if (data.is_featured !== undefined) { fields.push('is_featured = ?'); params.push(data.is_featured ? 1 : 0); }
 
         fields.push('updated_at = CURRENT_TIMESTAMP');
+        
+        const sql = `UPDATE articles SET ${fields.join(', ')} WHERE id = ?`;
         params.push(id);
 
-        await this.run(`UPDATE articles SET ${fields.join(', ')} WHERE id = ?`, params);
+        try {
+            const result = await this.run(sql, params);
+            if (result.changes === 0) {
+                console.warn(`[DB] No article updated for ID ${id}. Query: ${sql}`);
+            }
+            return result;
+        } catch (err) {
+            console.error(`[DB] Update article error for ID ${id}:`, err.message);
+            throw err;
+        }
     }
 
     async deleteArticle(id) {

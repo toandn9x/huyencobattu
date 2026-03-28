@@ -36,10 +36,12 @@ const authenticateToken = async (req, res, next) => {
 };
 
 const requireAdmin = (req, res, next) => {
-    const userRole = req.user?.role?.toLowerCase?.() || '';
-    console.log('[Auth] requireAdmin check - user role:', req.user?.role, '| normalized:', userRole);
-    if (!req.user || userRole !== 'admin') {
-        return res.status(403).json({ success: false, message: 'Admin access required', userRole: req.user?.role });
+    if (!req.user || (req.user.is_admin !== 1 && req.user.is_admin !== true)) {
+        return res.status(403).json({ 
+            success: false, 
+            error: 'Quyền quản trị viên là bắt buộc',
+            message: 'Admin access required' 
+        });
     }
     next();
 };
