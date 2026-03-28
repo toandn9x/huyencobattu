@@ -4,4 +4,4 @@ Disallow: /admin
 Disallow: /input
 Disallow: /profile
 
-Sitemap: https://huyencobattu.com/sitemap.xml
+Sitemap: https://huyencobattu/sitemap.xml
