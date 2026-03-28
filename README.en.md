@@ -205,7 +205,8 @@
 
 ```bash
 git clone <repository-url>
-cd tinix-bazi
+ cd huyencobattu
+
 
 # Install all dependencies (root + workspaces)
 npm install
