@@ -5,6 +5,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const compression = require('compression');
+const path = require('path');
+const fs = require('fs');
 
 const baziRoutes = require('./src/routes/bazi.routes');
 const consultantRoutes = require('./src/routes/consultant.routes');
@@ -44,7 +46,10 @@ const aiLimiter = rateLimit({
 });
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
+}));
 app.use(compression());
 app.use(cors());
 app.use(express.json({ limit: '5mb' })); // Increased limit for large chart data
@@ -71,7 +76,7 @@ app.use((req, res, next) => {
     // Hook into response finish to capture status code + response time
     res.on('finish', () => {
         // Skip static assets and health checks to reduce noise
-        if (req.url === '/' || req.url === '/api/docs' || req.url.startsWith('/assets')) return;
+        if (req.url === '/' || req.url === '/api/health' || req.url === '/api/docs' || req.url.startsWith('/assets')) return;
 
         const responseTime = Date.now() - startTime;
         dbService.saveAccessLog({
@@ -99,13 +104,12 @@ app.use('/api/que', queRoutes);
 // app.use('/api/daily', dailyRoutes);
 
 
-// Health check
-app.get('/', (req, res) => {
+// Health check endpoint for monitoring, Render, and self-ping
+app.get('/api/health', (req, res) => {
     res.json({
-        name: 'BaZi Mega-Evolution API',
-        version: '2.1',
-        status: 'running',
-        docs: '/api/docs'
+        status: 'ok',
+        uptime: Math.floor(process.uptime()),
+        timestamp: new Date().toISOString()
     });
 });
 
@@ -113,6 +117,7 @@ app.get('/', (req, res) => {
 app.get('/api/docs', (req, res) => {
     res.json({
         endpoints: [
+            { method: 'GET', path: '/api/health', description: 'Server health check' },
             { method: 'GET', path: '/api/analyze', description: 'Full BaZi analysis' },
             { method: 'GET', path: '/api/chart', description: 'Basic chart info' },
             { method: 'GET', path: '/api/elements', description: 'Ngũ hành analysis' },
@@ -136,6 +141,35 @@ app.get('/api/docs', (req, res) => {
         }
     });
 });
+
+// Catch-all for unhandled API routes
+app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: 'API endpoint not found' });
+});
+
+// Static files & SPA fallback routing
+const frontendDist = path.join(__dirname, '../frontend/dist');
+
+if (fs.existsSync(frontendDist)) {
+    // Serve React built files
+    app.use(express.static(frontendDist));
+
+    // Client-side SPA routing fallback (all non-API routes serve index.html)
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+} else {
+    // Fallback if frontend is not built
+    app.get('/', (req, res) => {
+        res.json({
+            name: 'BaZi Mega-Evolution API',
+            version: '2.1',
+            status: 'running',
+            docs: '/api/docs',
+            warning: 'Thư mục frontend/dist chưa được tạo. Hãy chạy "npm run build" trước khi start server.'
+        });
+    });
+}
 
 // Error handler
 app.use((err, req, res, next) => {
@@ -165,6 +199,31 @@ process.once('SIGUSR2', () => {
     }, 100);
 });
 
+// Self-ping to prevent Render Free tier instance from sleeping (Render inactivity timeout: 15 min)
+function startSelfPing() {
+    const pingIntervalMs = 14 * 60 * 1000; // 14 minutes
+    // Render automatically sets RENDER_EXTERNAL_URL (e.g. https://xxx.onrender.com)
+    const appUrl = process.env.RENDER_EXTERNAL_URL || process.env.SERVER_URL || process.env.APP_URL;
+
+    if (!appUrl) {
+        console.log('[SELF-PING] RENDER_EXTERNAL_URL / SERVER_URL chưa được thiết lập. Cơ chế tự ping sẽ hoạt động khi deploy lên Render.');
+        return;
+    }
+
+    const healthUrl = `${appUrl.replace(/\/+$/, '')}/api/health`;
+    console.log(`[SELF-PING] Đã kích hoạt tự ping mỗi 14 phút tới: ${healthUrl}`);
+
+    setInterval(async () => {
+        try {
+            const res = await fetch(healthUrl);
+            const timeVn = new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+            console.log(`[SELF-PING] ${timeVn} - Ping ${healthUrl} -> Status: ${res.status}`);
+        } catch (err) {
+            console.warn(`[SELF-PING] Ping thất bại: ${err.message}`);
+        }
+    }, pingIntervalMs);
+}
+
 // Initialize database and start server
 (async () => {
     try {
@@ -178,6 +237,9 @@ process.once('SIGUSR2', () => {
 
             // Auto-cleanup old access logs (>30 days)
             dbService.cleanOldAccessLogs(30).catch(() => { });
+
+            // Kích hoạt cơ chế tự ping tránh server bị ngủ đông
+            startSelfPing();
         });
     } catch (error) {
         console.error('[STARTUP] Critical Error: Failed to initialize database:', error.message);

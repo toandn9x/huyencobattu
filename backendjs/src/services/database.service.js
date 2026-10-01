@@ -1381,6 +1381,18 @@ class DatabaseService {
         }
         return result.changes;
     }
+
+    /**
+     * Close database connection safely
+     */
+    close() {
+        if (this.db) {
+            this.db.close((err) => {
+                if (err) console.error('[DB] Error closing database:', err.message);
+                else console.log('[DB] Database connection closed.');
+            });
+        }
+    }
 }
 
 module.exports = new DatabaseService();
