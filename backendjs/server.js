@@ -233,7 +233,7 @@ function startSelfPing() {
         app.listen(PORT, () => {
             console.log(`🚀 BaZi Mega-Evolution API running on port ${PORT}`);
             console.log(`📚 API Docs: http://localhost:${PORT}/api/docs`);
-            console.log(`💾 SQLite Database: data/bazi_consultant.db`);
+            console.log(`💾 Database: ${dbService.isPostgres ? 'PostgreSQL (Supabase)' : 'SQLite (' + dbService.dbPath + ')'}`);
 
             // Auto-cleanup old access logs (>30 days)
             dbService.cleanOldAccessLogs(30).catch(() => { });

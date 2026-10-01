@@ -18,6 +18,8 @@
 - [Kiến Trúc Hệ Thống](#-kiến-trúc-hệ-thống)
 - [Công Nghệ Sử Dụng](#-công-nghệ-sử-dụng)
 - [Cài Đặt & Chạy](#-cài-đặt--chạy)
+- [Cấu Hình Database (Supabase & SQLite)](#-cấu-hình-database-supabase--sqlite)
+- [Triển Khai Lên Render.com](#-triển-khai-lên-rendercom)
 - [Cấu Trúc Thư Mục](#-cấu-trúc-thư-mục)
 - [API Endpoints](#-api-endpoints)
 - [Engine Bát Tự](#-engine-bát-tự)
@@ -176,7 +178,7 @@
 | Công nghệ | Phiên bản | Mô tả |
 |---|---|---|
 | Express.js | 4.18 | Web framework |
-| SQLite (sql.js) | 1.10 | Database embedded |
+| PostgreSQL (Supabase) / SQLite | pg 8.13 / sqlite3 5.1 | Database hybrid (Cloud PostgreSQL hoặc SQLite local) |
 | lunar-javascript | 1.6 | Tính toán lịch Âm |
 | jsonwebtoken | 9.0 | Xác thực JWT |
 | helmet | 7.1 | HTTP security headers |
@@ -229,6 +231,13 @@ NODE_ENV=development
 # Lấy key tại: https://openrouter.ai/keys
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 OPENROUTER_MODEL=deepseek/deepseek-chat
+
+# Database Configuration (Tùy chọn)
+# Option 1: Supabase PostgreSQL (Khuyên dùng khi deploy Cloud / Render)
+# DATABASE_URL=postgresql://postgres.[ref]:[password]@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres
+
+# Option 2: SQLite (Mặc định local nếu không có DATABASE_URL)
+# DB_PATH=data/bazi_consultant.db
 ```
 
 > **Note:** Các tính năng không cần AI (lá số, đại vận, phân tích, chọn ngày...) vẫn hoạt động bình thường mà không cần API key. Chỉ tính năng Tư vấn AI và Hợp Duyên AI cần API key.
@@ -252,6 +261,71 @@ npm start       # Chạy backend production
 ```
 
 ---
+
+## 🗄️ Cấu Hình Database (Supabase & SQLite)
+
+Dự án sử dụng cơ chế **Database Hybrid linh hoạt**:
+- **Production / Cloud (Render)**: Khuyên dùng **Supabase (PostgreSQL)** để lưu trữ dữ liệu vĩnh viễn, không bị mất khi deploy hoặc khởi động lại container.
+- **Development / Local**: Tự động fallback về **SQLite** nội bộ nếu không tìm thấy biến môi trường `DATABASE_URL`.
+
+### 1. Cấu hình Supabase (PostgreSQL)
+
+1. **Tạo Project trên Supabase**:
+   - Truy cập [supabase.com](https://supabase.com) $\rightarrow$ Đăng nhập $\rightarrow$ Bấm **New Project**.
+   - Đặt tên project, nhập mật khẩu database an toàn (lưu ý mật khẩu này).
+   - Chọn Region gần nhất: **Singapore (`ap-southeast-1`)**.
+
+2. **Lấy chuỗi kết nối (Connection String)**:
+   - Trên thanh menu trên cùng, bấm nút **Connect** (hoặc vào **Project Settings ⚙️** $\rightarrow$ **Database** $\rightarrow$ **Connection String**).
+   - Chọn tab **URI** (chế độ Transaction hoặc Session):
+     ```text
+     postgresql://postgres.[project-ref]:[YOUR-PASSWORD]@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres
+     ```
+   - Thay `[YOUR-PASSWORD]` bằng mật khẩu đã đặt khi tạo database.
+
+3. **Cấu hình biến môi trường**:
+   - Thêm vào file `backendjs/.env` (nếu chạy local) hoặc thêm vào **Environment Variables** trên Render:
+     ```env
+     DATABASE_URL=postgresql://postgres.[project-ref]:[YOUR-PASSWORD]@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres
+     ```
+
+4. **Tự động khởi tạo dữ liệu (Auto-Migration)**:
+   - Khi `DATABASE_URL` được thiết lập, server Node.js khi khởi động sẽ **tự động tạo toàn bộ 12 bảng, đánh index và khởi tạo tài khoản Admin mặc định** (`admin@huyencobattu.vn` / mật khẩu: `admin`).
+   - Bạn **không cần** phải chạy SQL thủ công trên Supabase.
+
+### 2. Cấu hình SQLite (Local & Persistent Disk)
+
+- Nếu không cung cấp `DATABASE_URL`, server tự động lưu dữ liệu vào file `backendjs/data/bazi_consultant.db`.
+- Nếu deploy trên VPS hoặc Render có gắn **Persistent Disk**, bạn có thể đổi đường dẫn lưu file SQLite qua biến môi trường:
+  ```env
+  DB_PATH=/var/data/bazi_consultant.db
+  ```
+
+---
+
+## ☁️ Triển Khai Lên Render.com
+
+Dự án đã được cấu hình tối ưu để chạy **cả Front-end và Back-end gộp chung trên 1 Web Service duy nhất** của Render, đi kèm cơ chế **tự ping mỗi 14 phút** để chống sleep trên gói Free.
+
+### Các bước thiết lập trên Render Dashboard:
+
+1. **Tạo Web Service**:
+   - Kết nối với kho Git chứa dự án.
+   - **Environment**: `Node`
+   - **Build Command**: `npm install && npm run build`
+   - **Start Command**: `npm start`
+
+2. **Cấu hình Environment Variables (Tab Environment)**:
+   | Biến môi trường | Giá trị | Mô tả |
+   |---|---|---|
+   | `NODE_ENV` | `production` | Bắt buộc cho production |
+   | `DATABASE_URL` | `postgresql://postgres...` | Connection String Supabase |
+   | `OPENROUTER_API_KEY` | `sk-or-v1-...` | API Key tư vấn AI |
+   | `OPENROUTER_MODEL` | `deepseek/deepseek-chat` | Mô hình AI sử dụng |
+
+3. **Cơ chế chống ngủ đông (Self-ping Keep-Alive)**:
+   - Render sẽ tự động cung cấp biến môi trường `RENDER_EXTERNAL_URL` (ví dụ `https://ten-app.onrender.com`).
+   - Server Express sẽ tự động gửi request `GET /api/health` mỗi **14 phút** để máy chủ không bao giờ bị Render đưa vào trạng thái ngủ đông (Sleep).
 
 ## 📁 Cấu Trúc Thư Mục
 

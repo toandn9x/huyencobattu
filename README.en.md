@@ -18,6 +18,8 @@
 - [System Architecture](#-system-architecture)
 - [Tech Stack](#-tech-stack)
 - [Getting Started](#-getting-started)
+- [Database Configuration (Supabase & SQLite)](#-database-configuration-supabase--sqlite)
+- [Deploying on Render.com](#-deploying-on-rendercom)
 - [Project Structure](#-project-structure)
 - [API Endpoints](#-api-endpoints)
 - [BaZi Engine](#-bazi-engine)
@@ -176,7 +178,7 @@
 | Technology | Version | Description |
 |---|---|---|
 | Express.js | 4.18 | Web framework |
-| SQLite (sqlite3) | 5.1 | Embedded database |
+| PostgreSQL (Supabase) / SQLite | pg 8.13 / sqlite3 5.1 | Hybrid database (Cloud PostgreSQL or local SQLite) |
 | lunar-javascript | 1.6 | Lunar calendar calculations |
 | jsonwebtoken | 9.0 | JWT authentication |
 | helmet | 7.1 | HTTP security headers |
@@ -229,6 +231,13 @@ NODE_ENV=development
 # Get your key at: https://openrouter.ai/keys
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 OPENROUTER_MODEL=deepseek/deepseek-chat
+
+# Database Configuration (Optional)
+# Option 1: Supabase PostgreSQL (Recommended for Cloud / Render)
+# DATABASE_URL=postgresql://postgres.[ref]:[password]@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres
+
+# Option 2: SQLite (Default local fallback)
+# DB_PATH=data/bazi_consultant.db
 ```
 
 > **Note:** Non-AI features (chart generation, luck cycles, analysis, date selection...) work perfectly without an API key. Only the AI Consultant and AI Matching features require an API key.
@@ -252,6 +261,71 @@ npm start       # Run backend in production
 ```
 
 ---
+
+## 🗄️ Database Configuration (Supabase & SQLite)
+
+The platform supports a flexible **Hybrid Database** architecture:
+- **Production / Cloud (Render)**: Recommended to use **Supabase (PostgreSQL)** for permanent persistence that survives redeploys and container restarts.
+- **Development / Local**: Automatically falls back to embedded **SQLite** if `DATABASE_URL` is not provided.
+
+### 1. Supabase (PostgreSQL) Setup
+
+1. **Create a Supabase Project**:
+   - Go to [supabase.com](https://supabase.com) $\rightarrow$ Sign in $\rightarrow$ Click **New Project**.
+   - Enter project name, set a secure database password (note this password).
+   - Select the closest Region: **Singapore (`ap-southeast-1`)**.
+
+2. **Obtain Connection String**:
+   - In the top navigation bar, click the **Connect** button (or navigate to **Project Settings ⚙️** $\rightarrow$ **Database** $\rightarrow$ **Connection String**).
+   - Select the **URI** tab (Transaction or Session mode):
+     ```text
+     postgresql://postgres.[project-ref]:[YOUR-PASSWORD]@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres
+     ```
+   - Replace `[YOUR-PASSWORD]` with your actual database password.
+
+3. **Configure Environment Variable**:
+   - Add to `backendjs/.env` (for local) or to **Environment Variables** on Render:
+     ```env
+     DATABASE_URL=postgresql://postgres.[project-ref]:[YOUR-PASSWORD]@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres
+     ```
+
+4. **Automatic Migration & Seeding**:
+   - Upon startup with `DATABASE_URL`, the server will **automatically create all 12 tables, indexes, and seed default Admin credentials** (`admin@huyencobattu.vn` / password: `admin`).
+   - Manual SQL execution in Supabase SQL editor is optional.
+
+### 2. SQLite Configuration (Local & Persistent Disk)
+
+- If `DATABASE_URL` is omitted, the server defaults to `backendjs/data/bazi_consultant.db`.
+- When mounting a **Persistent Disk** on VPS/Render, customize the DB file location:
+  ```env
+  DB_PATH=/var/data/bazi_consultant.db
+  ```
+
+---
+
+## ☁️ Deploying on Render.com
+
+The platform is pre-configured to bundle **both Frontend (React) and Backend (Express) into a single Render Web Service**, with a built-in **14-minute self-ping** mechanism to prevent idle sleep on the Free tier.
+
+### Render Dashboard Configuration:
+
+1. **Create Web Service**:
+   - Connect your Git repository.
+   - **Environment**: `Node`
+   - **Build Command**: `npm install && npm run build`
+   - **Start Command**: `npm start`
+
+2. **Environment Variables (Environment Tab)**:
+   | Variable | Value | Description |
+   |---|---|---|
+   | `NODE_ENV` | `production` | Production mode |
+   | `DATABASE_URL` | `postgresql://postgres...` | Supabase Connection String |
+   | `OPENROUTER_API_KEY` | `sk-or-v1-...` | AI Consultant API key |
+   | `OPENROUTER_MODEL` | `deepseek/deepseek-chat` | Chosen AI model |
+
+3. **Anti-Sleep Keep-Alive**:
+   - Render automatically sets `RENDER_EXTERNAL_URL` (e.g. `https://your-app.onrender.com`).
+   - The server periodically calls `GET /api/health` every **14 minutes** to keep the service warm and responsive.
 
 ## 📁 Project Structure
 

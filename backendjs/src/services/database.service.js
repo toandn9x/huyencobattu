@@ -1,25 +1,78 @@
 /**
- * SQLite Database Service using native sqlite3 driver
- * Optimized for performance with WAL mode and async operations
+ * Hybrid Database Service
+ * Supports PostgreSQL (Supabase) via DATABASE_URL or native SQLite3 as fallback
  */
 
+const { Pool } = require('pg');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 
-// Database file path
-const DB_PATH = path.join(__dirname, '../../data/bazi_consultant.db');
+// Database file path (configurable via env for Render Persistent Disk)
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/bazi_consultant.db');
 const DATA_DIR = path.dirname(DB_PATH);
 
 class DatabaseService {
     constructor() {
         this.db = null;
+        this.pool = null;
+        this.isPostgres = !!process.env.DATABASE_URL;
+        this.dbPath = DB_PATH;
+    }
+
+    /**
+     * Transform SQLite SQL queries to PostgreSQL dialect
+     */
+    toPostgresSql(sql) {
+        let index = 1;
+        let pgSql = sql.replace(/\?/g, () => `$${index++}`);
+
+        // Date and time compatibility
+        pgSql = pgSql
+            .replace(/SELECT\s+DATE\('now',\s*'-6 days'\)/gi, "SELECT (CURRENT_DATE - INTERVAL '6 days')::date")
+            .replace(/SELECT\s+DATE\(date,\s*'\+1 day'\)\s+FROM\s+days\s+WHERE\s+date\s*<\s*DATE\('now'\)/gi, "SELECT (date + INTERVAL '1 day')::date FROM days WHERE date < CURRENT_DATE")
+            .replace(/datetime\('now',\s*'-'\s*\|\|\s*(\$\d+)\s*\|\|\s*' days'\)/gi, "(NOW() - ($1 || ' days')::INTERVAL)")
+            .replace(/DATE\('now'\)/gi, "CURRENT_DATE")
+            .replace(/strftime\('%H',\s*created_at\)/gi, "to_char(created_at, 'HH24')")
+            .replace(/\bLIKE\b/g, 'ILIKE');
+
+        // Sessions upsert compatibility
+        if (/INSERT\s+OR\s+REPLACE\s+INTO\s+sessions/i.test(pgSql)) {
+            pgSql = pgSql.replace(
+                /INSERT\s+OR\s+REPLACE\s+INTO\s+sessions\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)/i,
+                'INSERT INTO sessions ($1) VALUES ($2) ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, user_data = EXCLUDED.user_data'
+            );
+        }
+
+        return pgSql;
     }
 
     /**
      * Initialize database connection
      */
     async init() {
+        if (process.env.DATABASE_URL) {
+            this.isPostgres = true;
+            console.log('[DB] DATABASE_URL detected. Connecting to PostgreSQL (Supabase)...');
+            this.pool = new Pool({
+                connectionString: process.env.DATABASE_URL,
+                ssl: { rejectUnauthorized: false }
+            });
+
+            try {
+                const client = await this.pool.connect();
+                console.log('[DB] Connected to PostgreSQL (Supabase) successfully.');
+                client.release();
+                await this.createTables();
+                return;
+            } catch (err) {
+                console.error('[DB] Failed to connect to PostgreSQL:', err.message);
+                throw err;
+            }
+        }
+
+        // SQLite fallback
+        this.isPostgres = false;
         return new Promise((resolve, reject) => {
             // Ensure directory exists
             if (!fs.existsSync(DATA_DIR)) {
@@ -50,7 +103,27 @@ class DatabaseService {
     /**
      * Run a query that doesn't return data (CREATE, INSERT, UPDATE, DELETE)
      */
-    run(sql, params = []) {
+    async run(sql, params = []) {
+        if (this.isPostgres) {
+            let pgSql = this.toPostgresSql(sql);
+            const isInsert = pgSql.trim().toUpperCase().startsWith('INSERT');
+            const hasReturning = pgSql.toUpperCase().includes('RETURNING');
+            const isSessions = pgSql.toLowerCase().includes('into sessions');
+
+            if (isInsert && !hasReturning && !isSessions) {
+                try {
+                    const res = await this.pool.query(pgSql + ' RETURNING id', params);
+                    return { id: res.rows?.[0]?.id || null, changes: res.rowCount };
+                } catch (e) {
+                    const res = await this.pool.query(pgSql, params);
+                    return { id: null, changes: res.rowCount };
+                }
+            } else {
+                const res = await this.pool.query(pgSql, params);
+                return { id: res.rows?.[0]?.id || null, changes: res.rowCount };
+            }
+        }
+
         return new Promise((resolve, reject) => {
             this.db.run(sql, params, function (err) {
                 if (err) {
@@ -67,7 +140,13 @@ class DatabaseService {
     /**
      * Get first row result
      */
-    get(sql, params = []) {
+    async get(sql, params = []) {
+        if (this.isPostgres) {
+            const pgSql = this.toPostgresSql(sql);
+            const res = await this.pool.query(pgSql, params);
+            return res.rows[0] || null;
+        }
+
         return new Promise((resolve, reject) => {
             this.db.get(sql, params, (err, row) => {
                 if (err) {
@@ -83,7 +162,13 @@ class DatabaseService {
     /**
      * Get all rows
      */
-    all(sql, params = []) {
+    async all(sql, params = []) {
+        if (this.isPostgres) {
+            const pgSql = this.toPostgresSql(sql);
+            const res = await this.pool.query(pgSql, params);
+            return res.rows || [];
+        }
+
         return new Promise((resolve, reject) => {
             this.db.all(sql, params, (err, rows) => {
                 if (err) {
@@ -100,6 +185,10 @@ class DatabaseService {
      * Create tables if they don't exist
      */
     async createTables() {
+        if (this.isPostgres) {
+            await this.createPostgresTables();
+            return;
+        }
         // Customers table
         await this.run(`
             CREATE TABLE IF NOT EXISTS customers (
@@ -362,6 +451,224 @@ class DatabaseService {
         }
 
         console.log('[DB] Tables and indexes checked/created.');
+        await this.initDefaultCategories();
+        await this.initDefaultArticleCategories();
+        await this.autoSeedArticles();
+    }
+
+    /**
+     * Create tables and indexes for PostgreSQL (Supabase)
+     */
+    async createPostgresTables() {
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS customers (
+                id SERIAL PRIMARY KEY,
+                name TEXT,
+                year INTEGER NOT NULL,
+                month INTEGER NOT NULL,
+                day INTEGER NOT NULL,
+                hour INTEGER DEFAULT 12,
+                minute INTEGER DEFAULT 0,
+                gender TEXT DEFAULT 'Nam',
+                calendar TEXT DEFAULT 'solar',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS consultations (
+                id SERIAL PRIMARY KEY,
+                customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+                theme_id TEXT,
+                question_id TEXT NOT NULL,
+                question_text TEXT,
+                answer TEXT,
+                use_ai INTEGER DEFAULT 1,
+                credits_used INTEGER DEFAULT 0,
+                user_id INTEGER,
+                persona TEXT DEFAULT 'huyen_co',
+                follow_ups TEXT, 
+                person1_data TEXT,
+                person2_data TEXT,
+                metadata TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS question_categories (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                icon TEXT DEFAULT '📋',
+                order_index INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 1,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS custom_questions (
+                id SERIAL PRIMARY KEY,
+                category_id INTEGER REFERENCES question_categories(id) ON DELETE CASCADE,
+                text TEXT NOT NULL,
+                is_active INTEGER DEFAULT 1,
+                order_index INTEGER DEFAULT 0,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                name TEXT,
+                credits INTEGER DEFAULT 100,
+                is_admin INTEGER DEFAULT 0,
+                bazi_data TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP WITH TIME ZONE
+            )
+        `);
+
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS credit_transactions (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                amount INTEGER NOT NULL,
+                type TEXT NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                user_data TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP WITH TIME ZONE
+            )
+        `);
+
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS credit_requests (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                amount INTEGER DEFAULT 100,
+                status TEXT DEFAULT 'pending',
+                admin_note TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                processed_at TIMESTAMP WITH TIME ZONE,
+                processed_by INTEGER
+            )
+        `);
+
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS article_categories (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                slug TEXT UNIQUE NOT NULL,
+                description TEXT,
+                order_index INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 1,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS articles (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                slug TEXT UNIQUE NOT NULL,
+                excerpt TEXT,
+                content TEXT NOT NULL,
+                thumbnail TEXT,
+                category_id INTEGER REFERENCES article_categories(id) ON DELETE SET NULL,
+                author TEXT DEFAULT 'Huyền Cơ Bát Tự',
+                views INTEGER DEFAULT 0,
+                is_published INTEGER DEFAULT 1,
+                is_featured INTEGER DEFAULT 0,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS que_history (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER,
+                customer_id INTEGER,
+                context_id TEXT,
+                bazi_params TEXT,
+                que_type TEXT NOT NULL,
+                period_key TEXT NOT NULL,
+                gua_number INTEGER,
+                gua_name TEXT,
+                gua_data TEXT,
+                user_note TEXT,
+                is_verified INTEGER DEFAULT 0,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await this.run(`
+            CREATE TABLE IF NOT EXISTS access_logs (
+                id SERIAL PRIMARY KEY,
+                ip TEXT,
+                method TEXT,
+                path TEXT,
+                status_code INTEGER,
+                user_agent TEXT,
+                user_id INTEGER,
+                user_email TEXT,
+                response_time INTEGER,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Indexes
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_consultations_customer ON consultations(customer_id)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_consultations_user ON consultations(user_id)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_customers_birth ON customers(year, month, day)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_questions_category ON custom_questions(category_id)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_credit_trans_user ON credit_transactions(user_id)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_credit_requests_status ON credit_requests(status)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_articles_slug ON articles(slug)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_articles_category ON articles(category_id)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(is_published)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_article_categories_slug ON article_categories(slug)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_que_history_lookup ON que_history(user_id, que_type, period_key, context_id)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_access_logs_created ON access_logs(created_at)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_access_logs_ip ON access_logs(ip)`);
+        await this.run(`CREATE INDEX IF NOT EXISTS idx_access_logs_path ON access_logs(path)`);
+
+        // Default Admins
+        const admins = [
+            { email: 'admin@huyencobattu.vn', hash: '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', name: 'Administrator' },
+            { email: 'admin@admin.com', hash: '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', name: 'System Admin' }
+        ];
+
+        for (const admin of admins) {
+            const email = admin.email.toLowerCase().trim();
+            const exists = await this.get(`SELECT id FROM users WHERE LOWER(TRIM(email)) = ?`, [email]);
+
+            if (!exists) {
+                console.log(`[DB] Admin ${email} not found. Creating in Postgres...`);
+                await this.run(`
+                    INSERT INTO users (email, password_hash, name, credits, is_admin)
+                    VALUES (?, ?, ?, 9999, 1)
+                `, [email, admin.hash, admin.name]);
+                console.log(`[DB] Admin ${email} created in Postgres.`);
+            }
+        }
+
+        console.log('[DB] PostgreSQL tables and indexes checked/created.');
         await this.initDefaultCategories();
         await this.initDefaultArticleCategories();
         await this.autoSeedArticles();
@@ -1386,10 +1693,14 @@ class DatabaseService {
      * Close database connection safely
      */
     close() {
-        if (this.db) {
+        if (this.isPostgres && this.pool) {
+            this.pool.end(() => {
+                console.log('[DB] PostgreSQL pool closed.');
+            });
+        } else if (this.db) {
             this.db.close((err) => {
-                if (err) console.error('[DB] Error closing database:', err.message);
-                else console.log('[DB] Database connection closed.');
+                if (err) console.error('[DB] Error closing SQLite database:', err.message);
+                else console.log('[DB] SQLite database connection closed.');
             });
         }
     }
